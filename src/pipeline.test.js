@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import { runPipeline } from "./pipeline.js";
 
 const REPLAY_RUNS = 10;
+const FIXED_TIMESTAMP = "2025-01-01T00:00:00.000Z";
 
 function replay(intent) {
-  const results = Array.from({ length: REPLAY_RUNS }, () => JSON.stringify(runPipeline(intent)));
+  const results = Array.from({ length: REPLAY_RUNS }, () => 
+    JSON.stringify(runPipeline(intent, { _timestamp: FIXED_TIMESTAMP }))
+  );
   return { first: results[0], allIdentical: results.every((r) => r === results[0]) };
 }
 

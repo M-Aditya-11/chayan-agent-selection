@@ -55,22 +55,45 @@ function validateStructure(resolvedAgents = []) {
   return { valid: errors.length === 0, errors };
 }
 
-// ─── Inline buildActionProposal ───────────────────────────────────────────────
+// ─── Inline buildActionProposal (mirrors agent-sandbox) ──────────────────────
 
-function buildActionProposal({ actor, action, agents, context = {} }) {
-  const resolved = agents.map((id) => getAgentById(id));
+const CONTRACT_VERSION = "v1.1";
 
-  if (resolved.includes(null)) {
-    return { actor, action, agents, sequence: [...agents], constraints: { lifecycle_valid: false }, context, governance_request: null };
+function generateProposalId({ actor, action, agents, context }) {
+  const payload = JSON.stringify({ actor, action, agents, context });
+  let hash = 0;
+  for (let i = 0; i < payload.length; i++) {
+    const char = payload.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
   }
+  return "ap-" + Math.abs(hash).toString(16);
+}
 
-  const validation = validateStructure(resolved);
+function buildActionProposal({ actor, action, agents, context = {}, _timestamp } = {}) {
+  const proposal_id = generateProposalId({ actor, action, agents, context });
+  const timestamp = _timestamp ?? new Date().toISOString();
 
-  if (!validation.valid) {
-    return { actor, action, agents, sequence: [...agents], constraints: { lifecycle_valid: false }, context, governance_request: null };
+  const resolved = agents.map((id) => getAgentById(id));
+  const structurallyValid = !resolved.includes(null) && validateStructure(resolved).valid;
+
+  if (!structurallyValid) {
+    return {
+      proposal_id,
+      timestamp,
+      contract_version: CONTRACT_VERSION,
+      actor, action, agents,
+      sequence: [...agents],
+      constraints: { lifecycle_valid: false },
+      context,
+      governance_request: null,
+    };
   }
 
   return {
+    proposal_id,
+    timestamp,
+    contract_version: CONTRACT_VERSION,
     actor, action, agents,
     sequence: [...agents],
     constraints: { lifecycle_valid: true },
@@ -86,10 +109,11 @@ function buildActionProposal({ actor, action, agents, context = {} }) {
  * Returns a structured log: { intent, selection, proposal }
  *
  * @param {{ actor: string, action: string, context: { task: string } }} intent
+ * @param {{ _timestamp?: string }} options — inject fixed timestamp for replay tests
  * @returns {{ intent: object, selection: object, proposal: object }}
  */
-export function runPipeline(intent) {
+export function runPipeline(intent, { _timestamp } = {}) {
   const selection = selectAgents(intent);
-  const proposal  = buildActionProposal(selection);
+  const proposal  = buildActionProposal({ ...selection, _timestamp });
   return { intent, selection, proposal };
 }
