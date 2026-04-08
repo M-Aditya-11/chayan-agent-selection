@@ -70,34 +70,60 @@ function generateProposalId({ actor, action, agents, context }) {
   return "ap-" + Math.abs(hash).toString(16);
 }
 
+function buildFailure(stage, codes, message) {
+  return { stage, codes, message };
+}
+
 function buildActionProposal({ actor, action, agents, context = {}, _timestamp } = {}) {
   const proposal_id = generateProposalId({ actor, action, agents, context });
-  const timestamp = _timestamp ?? new Date().toISOString();
+  const timestamp   = _timestamp ?? new Date().toISOString();
 
-  const resolved = agents.map((id) => getAgentById(id));
-  const structurallyValid = !resolved.includes(null) && validateStructure(resolved).valid;
-
-  if (!structurallyValid) {
-    return {
-      proposal_id,
-      timestamp,
-      contract_version: CONTRACT_VERSION,
-      actor, action, agents,
-      sequence: [...agents],
-      constraints: { lifecycle_valid: false },
-      context,
-      governance_request: null,
-    };
-  }
-
-  return {
+  const base = {
     proposal_id,
     timestamp,
     contract_version: CONTRACT_VERSION,
     actor, action, agents,
     sequence: [...agents],
-    constraints: { lifecycle_valid: true },
     context,
+  };
+
+  if (agents.length === 0) {
+    return {
+      ...base,
+      constraints: { lifecycle_valid: false },
+      failure: buildFailure("EMPTY_CHAIN", ["EMPTY_AGENT_CHAIN"], "No agents provided — an empty chain cannot be executed"),
+      governance_request: null,
+    };
+  }
+
+  const resolved = agents.map((id) => getAgentById(id));
+
+  if (resolved.includes(null)) {
+    return {
+      ...base,
+      constraints: { lifecycle_valid: false },
+      failure: buildFailure("REGISTRY_RESOLUTION", ["AGENT_NOT_FOUND"], "One or more agent IDs could not be resolved in the registry"),
+      governance_request: null,
+    };
+  }
+
+  const validation = validateStructure(resolved);
+
+  if (!validation.valid) {
+    const codes   = validation.errors.map((e) => e.code);
+    const message = validation.errors.map((e) => e.message).join("; ");
+    return {
+      ...base,
+      constraints: { lifecycle_valid: false },
+      failure: buildFailure("STRUCTURAL_VALIDATION", codes, message),
+      governance_request: null,
+    };
+  }
+
+  return {
+    ...base,
+    constraints: { lifecycle_valid: true },
+    failure: null,
     governance_request: { actor, action, resource: agents, context },
   };
 }
